@@ -371,7 +371,7 @@ def mha_backward_kernel_dkv(
       qk *= sm_scale
     if causal:
       span_q = start_q * block_q + jnp.arange(block_q)
-    qk = jnp.where(span_q[:, None] >= span_k[None, :], qk, float('-inf'))
+      qk = jnp.where(span_q[:, None] >= span_k[None, :], qk, float('-inf'))
     m = pl.load(m_ref, (pl.ds(start_q * block_q, block_q),))
     p = jnp.exp(qk - m[:, None])
     do = pl.load(do_scaled_ref, (pl.ds(start_q * block_q, block_q), slice(None)))
