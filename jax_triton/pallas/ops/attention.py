@@ -100,7 +100,7 @@ def mha_forward_kernel(
 def mha(q, k, v,
         sm_scale: float = 1.0,
         causal: bool = False,
-        block_q: int = 64,
+        block_q: int = 128,
         block_k: int = 64,
         backward_pass_impl: str = "triton",
         num_warps: Optional[int] = None,
@@ -412,6 +412,9 @@ def _mha_backward(sm_scale: float, causal: bool, block_q: int, block_k: int,
     return jax.vjp(functools.partial(mha_reference, sm_scale=sm_scale,
                                      causal=causal), q, k, v)[1](do)
   elif backward_pass_impl == "triton":
+    # For this kernel we need block_q = block_k = 64
+    block_q = min(seq_len, 64)
+    block_k = min(seq_len, 64)
     # We accumulate into dq so we need to initialize it to zeros.
     dq = jnp.zeros(q.shape, jnp.float32)
     out_shapes = [
@@ -454,6 +457,9 @@ def _mha_backward(sm_scale: float, causal: bool, block_q: int, block_k: int,
     # We accumulate into dq so we need to initialize it to zeros.
     out_shapes_q = jax.ShapeDtypeStruct(q.shape, jnp.float32)
 
+    # For split-kernel, dq works with blocks of 128 x 64
+    block_q = min(seq_len, 128)
+    block_k = min(seq_len, 64)
     grid_q = (batch_size, num_heads, jt.cdiv(seq_len, block_q))
     num_warps = 8
     dq = pl.pallas_call(
@@ -480,6 +486,9 @@ def _mha_backward(sm_scale: float, causal: bool, block_q: int, block_k: int,
         num_warps=num_warps,
         num_stages=2)(q, k, v, out, do_scaled, l, m, delta)
 
+    # dk+dv kernel requires 64 x 64 blocks
+    block_q = min(seq_len, 64)
+    block_k = min(seq_len, 64)
     grid_kv = (batch_size, num_heads, jt.cdiv(seq_len, block_k))
     out_shapes_kv = [
       jax.ShapeDtypeStruct(k.shape, k.dtype),
